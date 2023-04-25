@@ -1,0 +1,764 @@
+---
+title: "Project 2"
+author: "Group_Parag"
+date: "2023-02-09"
+output: pdf_document
+---
+# MAST 6251 Homework 2 - Movies Rating
+
+Saugat Nayak :48992286 
+Saksham Chauhan : 
+Divya Gaihar : 
+Yashagra Sharma : 49000606
+Parag Garg : 49057313
+
+```{r}
+#install.packages("knitr")
+```
+
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# 1 Introduction:
+For many people, watching movies is undoubtedly one of the best ways to escape. Whether it's taking a break from the stresses of daily life, going on a date, learning how to deal with stress, or enjoying a movie night with friends and family, there is something for everyone. There is something for everyone in movies. A collaboration between Vue Entertainment and the Department of Experimental Psychology at the University of Central Lancashire (UCL) revealed a positive correlation between watching movies, sharpening mental focus, and becoming fixated on a film, both of which would enhance mental health and cognition. A movie can take us to new places, offer hope, excitement, and trauma, and elicit our emotions. We are focused on the main character's fate for the duration of the movie. Because this character can transport you to your wildest fantasies and adventures, we fall in love with science fiction films, superhero films, dramas, and animated films.
+In conclusion, people don't want a bad movie, with a few exceptions that will be discussed later in the report. However, a good director can help to push the envelope and enhance the experience of the movie. The purpose of this report is to investigate the aspects we believe are crucial to achieving a "good" movie rating.
+# 2 Raw Data Summary
+The Motion pictures Dataset is an assortment of metadata for 45,000 films delivered at the latest July 2017. Cast, crew, plot keywords, budget, revenue, posters, release dates, languages, production companies, countries, and TMDB vote counts and averages are all included. For each of the 45,000 movies, the dataset also contains 26 million ratings from 270,000 users. On a 1 to 5 scale, ratings are given.
+movies_metadata.csv: includes details about each movie, including its title, budget, and revenue.
+credits.csv: contains information about each film's cast and crew.
+keywords.csv: contains information regarding each movie's keywords.
+links.csv: Contains details regarding the links to additional movie databases like IMDB and TMDb.
+ratings.csv: contains information regarding user ratings for each movie.
+Among the many applications of the dataset are trend analysis, sentiment analysis, and recommendation systems. However, processing and analyzing the dataset may necessitate significant computational resources due to its size.
+
+# 3 Model Analysis: Data and Empirical Context
+We analyze predicting a good movie rating to examine the outcome of interest, which is whether a movie is rated "good" or "bad." Films with a run time, vote average, and budget greater than zero were included in our analysis. Furthermore, we only selected films with at least 50 votes. In terms of our categorical variables, we decided to concentrate on stars (actors), genres, Top 15 Production companies and directors so that we could more effectively draw conclusions and insights from the model.
+It's important to note before we get started with this section that every variable in this model had significant coefficients. We will use coefficients with positive and negative values in this section. Although these coefficients do not directly predict ratings, the coefficients' sign can indicate the variable's influence on ratings.
+ 
+
+```{r, echo=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+```
+
+
+```{r, echo=FALSE}
+movies_df = read.csv("movies_metadata.csv", stringsAsFactors = FALSE)
+ratings = read.csv("ratings.csv", stringsAsFactors = FALSE)
+links = read.csv("links.csv", stringsAsFactors = FALSE)
+```
+
+```{r, echo=FALSE}
+# No change in the ratings and links files just changing the column name.
+names(ratings)[names(ratings) == 'movieId'] <- 'movie_id'
+names(links)[names(links) == 'movieId'] <- 'movie_id'
+names(links)[names(links) == 'imdbId'] <- 'imdb_id'
+ratings_df <- ratings
+links_df <- links
+
+#Changing the datatype of the Ids.
+head(ratings_df)
+head(links_df)
+```
+
+
+```{r, echo=FALSE}
+# Aggregate ratings by movie_id
+agg_tbl <-ratings_df %>% 
+  group_by(movie_id) %>% 
+  summarise(vars(rating), list(avg_rating = mean))
+
+# convert tibble to dataframe
+rating_agg = agg_tbl %>% as.data.frame()
+head(rating_agg)
+```
+```{r, echo=FALSE}
+movie_info_df = data.frame()
+movie_info_df <- movies_df %>% dplyr::select(imdb_id, id, budget, popularity, release_date, revenue, runtime, status, vote_average, vote_count, genres, production_companies)
+
+# Can change the data types as we need
+movie_info_df$budget <- as.numeric(movie_info_df$budget)
+movie_info_df$popularity <- as.numeric(movie_info_df$popularity)
+movie_info_df$revenue <- as.numeric(movie_info_df$revenue)
+movie_info_df$runtime <- as.numeric(movie_info_df$runtime)
+movie_info_df$vote_average <- as.numeric(movie_info_df$vote_average)
+movie_info_df$vote_count <- as.numeric(movie_info_df$vote_count)
+movie_info_df$release_date <- as.Date(movie_info_df$release_date)
+
+print(summary(movie_info_df))
+head(movie_info_df)
+
+# Remove ‘tt’ before imdb_id
+movie_info_df$imdb_id <- as.numeric(gsub('[tt]','',movie_info_df$imdb_id))
+head(movie_info_df)
+```
+```{r, echo=FALSE}
+# REMOVE Duplicates based on IMDB_id and convert imdb_id back to character to ensure it doesn't get computed
+movie_info_df <- distinct(movie_info_df,imdb_id,.keep_all=TRUE)
+
+filter(movie_info_df, imdb_id =='67306')
+filter(movie_info_df, imdb_id =='111613')
+filter(movie_info_df, imdb_id =='0')
+
+movie_info_df$imdb_id <- as.character(movie_info_df$imdb_id)
+head(movie_info_df)
+```
+```{r, echo=FALSE}
+# Parsing and structuring the movies_df metadata file.
+library(stringr)
+
+head(movie_info_df$genres)
+gen = movie_info_df$genres
+
+genre_df = data.frame()
+
+#for row i of the data
+for(i in 1:length(gen)){ #length(gen) for full data
+  
+  geni = gen[i] #extract the i'th row and save as geni
+  
+  if(str_count(geni) != 2){
+    matchi = str_locate_all(geni,"('name': ')(.*?)('\\})")[[1]] #find the start/stop points 
+    matchiID = str_locate_all(geni,"('id':)(.*?)('name':)")[[1]] #find the start/stop points 
+    
+    if(nrow(matchi) != nrow(matchiID)){
+      outputi$id    = -1
+      outputi$genre = "error"
+    } else {
+      #within each row, look at the k'th match, of which there will be dim(matchi)[1] matches to consider
+      K = dim(matchi)[1]
+      outputi = data.frame(row = rep(i,K),id = rep(NA,K), genre = rep(NA,K))
+      
+      for(k in 1:K){
+        # print(str_sub(geni,matchi[k,1]+9,matchi[k,2]-2))
+        outputi$id[k]    = as.numeric(str_sub(geni,matchiID[k,1]+6,matchiID[k,2]-9))
+        outputi$genre[k] = str_sub(geni,matchi[k,1]+9,matchi[k,2]-2)
+      }
+    }
+    outputi$imdb_id <- as.character(movie_info_df$imdb_id[i])
+    
+    genre_df = bind_rows(genre_df,outputi)
+  }
+}
+genre_df[genre_df$id != -1, ]
+```
+```{r, echo=FALSE}
+prod = movie_info_df$production_companies
+
+production_df = data.frame()
+
+#for row i of the data
+for(i in 1:length(prod)){ #length(prod) for full data
+  
+  prodi = prod[i] #extract the i'th row and save as prodi
+  #print(prodi)
+  if(str_count(prodi) != 2){
+    prodiID = str_locate_all(prodi,"('id': )(.*?)(\\})")[[1]] #find the start/stop points
+    prodiname = str_locate_all(prodi,"('name':)(.*?)('id':)")[[1]] #find the start/stop points
+    
+    if((prodi == "") || nrow(prodiname) == 0 || nrow(prodiname) != nrow(prodiID)){
+      outputi$id    = -1
+      outputi$name = "error"
+    } else {
+      #within each row, look at the k'th match, of which there will be dim(prodiname)[1] matches to consider
+      K = dim(prodiname)[1]
+      outputi = data.frame(row = rep(i,K),id = rep(NA,K), name = rep(NA,K))
+      
+      for(k in 1:K){
+        # print(str_sub(prodi,prodiname[k,1]+9,prodiname[k,2]-2))
+        outputi$id[k]    = as.numeric(str_sub(prodi,prodiID[k,1]+6,prodiID[k,2]-1))
+        outputi$name[k] = str_sub(prodi,prodiname[k,1]+9,prodiname[k,2]-8)
+      }
+    } 
+    outputi$imdb_id <- as.character(movie_info_df$imdb_id[i])
+    
+    production_df = bind_rows(production_df,outputi)
+  }
+}
+production_df[production_df$id != -1, ]
+```
+
+
+```{r, echo=FALSE}
+# Data cleaning
+# Helper function to clean the data
+clean_data <- function(clean_df) {
+  print(summary(clean_df))
+  clean_df <- na.omit(clean_df)
+  clean_df = drop_na(clean_df)
+  sum(is.na(clean_df))
+  
+  numeric_col = select_if(clean_df, is.numeric)
+  return(clean_df)
+}
+# Removing only the missing values as the dfs composed of categorical variables
+genre_df <-clean_data(genre_df)
+production_df <-clean_data(production_df)
+links_df <-clean_data(links_df)
+
+# Removing only the missing values and neglecting the outlier for the sanity of dataset.
+movie_info_df <- clean_data(movie_info_df)  # why this movie info is different from mine???
+```
+```{r, echo=FALSE}
+#checking if NA columns exist after cleaning
+anyNA(movie_info_df)
+```
+
+
+```{r, echo=FALSE}
+#select top genre for each movie
+head(genre_df)
+
+genre_top <- genre_df %>%
+  group_by(imdb_id) %>%
+  slice(1) %>%
+  arrange(row) %>%
+  dplyr::select(genre,imdb_id)
+ 
+head(genre_top)
+```
+
+```{r, echo=FALSE}
+#select top production company for each movie
+head(production_df)
+
+production_top <- production_df %>%
+  group_by(imdb_id) %>%
+  slice(1) %>%
+  arrange(row) %>%
+  dplyr::select(name,imdb_id)
+ 
+head(production_top)
+```
+```{r, echo=FALSE}
+production_count<- as.data.frame(table(production_top["name"]) )
+write.csv(production_count,"production_count.csv")
+```
+
+```{r, echo=FALSE}
+# create dummy varaible for production_top
+# test for top 10
+library(dplyr)
+library(stringr)
+
+# 1 for movies_df produced by top 15 companies 0 for everything else
+production_dummy <- production_top %>% 
+  mutate(level = case_when(str_detect(name, "Warner Bros.|Walt Disney|Paramount Pictures|Columbia Pictures|Columbia Tristar|Universal Pictures|Twentieth Century|New Line Cinema|Legendary Pictures|DreamWorks|Amblin|Relativity Media|Pixar Animation Studios") ~ "1",
+                           TRUE ~ "0"))
+
+head(production_dummy)
+colSums(production_dummy=='1')
+#5133 observations are from top 15 productions
+```
+```{r, echo=FALSE}
+# Data frames prepared from different files
+print(head(movie_info_df))
+print(head(genre_top))
+print(head(production_dummy))
+print(head(links_df))
+```
+
+
+```{r, echo=FALSE}
+# link datadframes together to form one table 
+#install.packages(sqldf)
+
+#### [status] = 'Released'
+
+links_df$imdb_id<-as.character(links_df$imdb_id)
+
+library(sqldf)
+
+# filter status to consider 'released' only 
+metadata = sqldf("
+SELECT 
+d.movie_id,
+a.imdb_id,
+a.budget,
+a.popularity,
+a.release_date,
+a.revenue,
+a.runtime,
+a.vote_average,
+a.vote_count,
+b.genre, 
+c.[level] AS Top15Production,
+e.avg_rating AS rating,
+a.id 
+FROM movie_info_df AS a
+LEFT JOIN genre_top AS b
+ON a.imdb_id = b.imdb_id LEFT JOIN production_dummy AS c
+ON a.imdb_id = c.imdb_id LEFT JOIN links_df AS d 
+ON a.imdb_id = d.imdb_id LEFT JOIN rating_agg AS e
+ON d.movie_id = e.movie_id
+WHERE [status] = 'Released'
+ORDER BY d.movie_id ASC
+
+                 ")
+
+head(metadata)
+
+#44657 obs in metadata
+```
+```{r, echo=FALSE}
+# 765 with N/A for rating
+sum(is.na(metadata$rating))
+```
+```{r, echo=FALSE}
+# Remove NA from rating 
+library(tidyr)
+metadata <- metadata %>% drop_na(rating)
+sum(is.na(metadata$rating)) #All NAs removed
+```
+
+```{r, echo=FALSE}
+# Deal with Genre
+genre_rank = sqldf("SELECT genre, COUNT(imdb_id) AS cnt FROM metadata GROUP BY genre ORDER BY cnt DESC")
+print(genre_rank)
+```
+```{r, echo=FALSE}
+# Create dummy variables for 'Drama', 'Comedy','Action'
+metadata$"genre"[!grepl('Drama|Comedy|Action', metadata$"genre")] <- 'Other'
+
+head(metadata)
+table(metadata$genre)
+```
+
+```{r, echo=FALSE}
+# deal with Top15Production -- substitute NA with 0
+sum(is.na(metadata$Top15Production))  
+metadata["Top15Production"][is.na(metadata["Top15Production"])] <- 0
+sum(is.na(metadata$Top15Production))
+```
+```{r, echo=FALSE}
+table(metadata["Top15Production"])
+```
+```{r, echo=FALSE}
+sum(is.na(metadata$budget))
+length(which(metadata$budget=='0')) # 35081
+
+sum(is.na(metadata$revenue))
+length(which(metadata$revenue=='0')) #36522
+
+sum(is.na(metadata$popularity)) # 0
+
+sum(is.na(metadata$runtime))
+length(which(metadata$runtime=='0')) #1438
+
+sum(is.na(metadata$vote_average))
+length(which(metadata$vote_average=='0')) # 2512
+
+sum(is.na(metadata$vote_count))
+length(which(metadata$vote_count=='0')) #2431
+```
+```{r, echo=FALSE}
+write.csv(metadata,"metadata_final_hs.csv")
+```
+#3.1 Initial step: 
+Good and bad criteria: Developed a feature-weighted rating to consider rating counts, and the outcome is based on the following criteria: good movies are those with a weighted rating that is higher than the cut-off value of 3.5, or better than 90% of films. 
+
+We aggregate the rating data by movie id and calculate the average rating for each movie to identify factors that may influence its rating. To determine whether the film is deemed "Good" based on these variables, we considered a variety of explanatory variables, such as the budget, popularity, genre, top 15 productions, revenue, runtime, vote average, vote count, and release date.
+
+After using a variety of methods to clean up the data, we got rid of missing values and outliers that can affect the results of any analysis of the data. Before deciding how to deal with missing values and outliers, it's always a good idea to think carefully about why they happen. After that, we all set up a data frame and apply a filter to the data to only include movies that have been released. There are 44657 observations in the resulting data frame.
+```{r}
+# My Numberical Variables are 
+numer_col <- c('budget','popularity','revenue','runtime','vote_average','vote_count','rating')
+
+df1 <- metadata %>%
+  dplyr::select(budget,popularity,revenue,runtime,vote_average,vote_count,rating)
+
+
+library(survival)
+library(lattice)
+library(ggplot2)
+library(Hmisc)
+hist.data.frame(df1)
+```
+
+
+```{r, echo=FALSE}
+summary(metadata$rating)
+```
+```{r, echo=FALSE}
+##Since 3rd quartile is at 3.5, we consider a film to be good if rating is >=3.5
+metadata$gs_ind <- with(metadata, ifelse(rating < 3.5, 0, 1))
+table(metadata$gs_ind)
+```
+
+
+
+```{r, echo=FALSE}
+### EDA Process
+
+hist(metadata$rating)
+#There is slight right skew to the distribution
+```
+```{r, echo=FALSE}
+ggplot(metadata,aes(x=rating)) + geom_histogram(fill="dodgerblue") + theme_bw(15) + 
+  xlab("Rating") + ylab("# of movies_df")
+```
+A psychologist at Oklahoma University conducted a study on the connection between drama genres and participants' emotions. The participants' feelings were consistent when they watched drama genres. Our model shows that some genres can influence how a movie is chosen and rated. We begin our investigation by observing the most popular genre for each film. It is interesting to note that, in comparison to other genres, drama, comedy, and action may enjoy a higher level of popularity due to preference for length. The revenue probably went up because of this.
+
+```{r}
+#convert top 15 prod to int to test for correlation
+metadata$Top15Production<-as.integer(metadata$Top15Production)
+
+library(GGally)
+#How are the variables correlated with the rating?
+ggcorr(bind_cols(metadata %>% dplyr::select(rating),metadata %>% dplyr::select(-rating)))
+```
+We found relationships between multiple variables in the data by observing the correlation matrix between all the numerical variables in the metadata data frame and the rating. All the numerical variables in the metadata data frame and the Rating seem to positively correlate with the average vote, runtime, vote count, and popularity. Revenue to some extent shows a correlation with rating, but many observations have an income is zero. Top 15 production does not show a correlation with rating but shows stronger relation with the vote count, revenue, popularity, and budget.
+
+#3.2) Model Implementation
+The logistic model was used to identify the variables that have a significant influence on a movie's rating and to extract useful information from the data. Our recommendation function can now be clearly defined. Genre, Top 15 Production Companies, Popularity, Revenue, Runtime, Average Vote, Count of Votes, and Release Date are used to begin evaluating the model.
+
+We added an Actor and a Director to the story to predict the best model. The audience will be able to empathize with the characters if the actors are good. Due to the actor's performance, some films' decades-old scenes still resonate today, and the director plays a crucial role in filmmaking.
+
+
+# MODEL 
+```{r include=FALSE, echo=FALSE}
+#convert top 15 prod to char as it represents 2 different kinds of productions
+metadata$Top15Production<-as.character(metadata$Top15Production)
+
+##model with genre and top15prod
+logReg1 = glm(gs_ind ~ genre  + Top15Production , metadata, family=binomial)
+summary(logReg1)
+
+library(car)
+vif(logReg1)
+```
+```{r include=FALSE, echo=FALSE}
+##model with genre, top15prod, vote_average, vote_count, popularity
+logReg2 = glm(gs_ind ~ genre  + Top15Production + vote_average + vote_count + popularity, metadata, family=binomial)
+summary(logReg2)
+vif(logReg2)
+```
+```{r include=FALSE, echo=FALSE}
+##model with genre, top15prod, vote_average, vote_count, popularity, runtime
+logReg3 = glm(gs_ind ~ genre  + Top15Production + vote_average + vote_count + popularity + runtime, metadata, family=binomial)
+summary(logReg3)
+vif(logReg3)
+```
+```{r, include=FALSE,echo=FALSE}
+##model with genre, vote_average, vote_count, popularity, runtime
+logReg4 = glm(gs_ind ~ genre + vote_average + vote_count + popularity + runtime, metadata, family=binomial)
+summary(logReg4)
+vif(logReg4)
+```
+```{r,include=FALSE, echo=FALSE}
+##model with genre, vote_average, vote_count, popularity
+logReg5 = glm(gs_ind ~ genre + vote_average + vote_count + popularity , metadata, family=binomial)
+summary(logReg5)
+vif(logReg5)
+```
+```{r, include=FALSE,echo=FALSE}
+## would num of movies_df released in the same month impact the goodness of movie?
+
+metadata$release_mnth<- format(as.Date(metadata$release_date), "%m")
+metadata$release_date<- format(as.Date(metadata$release_date), "%Y-%m")
+
+metadata <- sqldf(
+"select a.*,b.release_cnt 
+from metadata a left join 
+(select release_date,count(release_date) as release_cnt from metadata group by 1) b 
+on a.release_date = b.release_date"
+)
+head(metadata)
+```
+
+```{r, include=FALSE,echo=FALSE}
+##model with genre, top15prod, vote_average, vote_count, popularity, runtime, release_cnt
+logReg6 = glm(gs_ind ~ genre  + Top15Production + vote_average + vote_count + popularity + runtime + release_cnt, metadata, family=binomial)
+summary(logReg6)
+vif(logReg6)
+```
+```{r, include=FALSE,echo=FALSE}
+#convert release month across year to category and add to regression
+metadata$release_mnth<-as.character(metadata$release_mnth)
+
+##model with genre, top15prod, vote_average, vote_count, popularity, runtime, release_cnt
+logReg7 = glm(gs_ind ~ genre  + Top15Production + vote_average + vote_count + popularity + runtime + release_cnt + release_mnth, metadata, family=binomial)
+summary(logReg7)
+
+#not all coefficients of release_mnth are significant -- should we keep this variable in the model or not??
+vif(logReg7)
+```
+```{r, include=FALSE,echo=FALSE}
+#could the main actor or main director play a role? What about gender?
+credits_m = read.csv("credits.csv", stringsAsFactors = FALSE)
+credits = credits_m[,]
+```
+
+```{r,include=FALSE, echo=FALSE}
+#import cast and crew json and create a dataframe which can be merged with metadata
+
+# Parsing and structuring the credits file.
+# Helper function to parse the JSON format text.
+
+############ For credit.csv file parsing the cast column.
+
+parse_cast <- function(cast_text) {
+  # Takes one cell of the JSON format for processing
+  #print(cast_text)
+  text <- 
+    sub("\\?\\$\\?", "",                    # Drop the first one occurrences
+        gsub("\'|\"|\\[|\\]|\\{|\\}|,", "", # Drop the all the one occurrences
+             gsub("\'cast_id\':|\'character\':|\'credit_id\':|\'gender\':|\'id\':|\'name\':|\'order\':|\'profile_path\':", 
+                  "?$?",                    # Drop all the \\ and names mentioned above
+                  cast_text)
+        )
+    )
+  #print(text)
+  data <- data.frame(matrix(                # Change that into matrix and data frame.
+    trimws(unlist(                          # unlisting it and trimws - Remove leading and/or trailing whitespace from character strings.
+      strsplit(text, "\\?\\$\\?")           # Split it using ?$?
+    )), 
+    ncol = 8, byrow = TRUE), stringsAsFactors = FALSE)
+  
+  names(data) <- c("cast_id", "character", "credit_id", "cast_gender", "id_from_cast", "cast_name", "cast_order", "profile_path") # add column names
+  data$cast_order <- as.numeric(data$cast_order)
+  
+  # Return whatever is necessary.
+  return(data %>% dplyr::select(cast_id, cast_gender, id_from_cast, cast_name, cast_order)) # Return only what is needed.
+}
+
+# Important - change this value according to the size dataset, larger the dataset larger the number.
+num_batches <- 100
+batch_interval <- ceiling(nrow(credits) / num_batches)
+batch_brackets <- 0:num_batches * batch_interval
+batch_brackets[num_batches+1] <- nrow(credits)
+batch_brackets[1] <- 1
+#print(batch_brackets)
+
+cast_df <- data.frame()
+for(b_i in 1:num_batches){
+  batch_data <- data.frame()
+  for(b2_i in batch_brackets[b_i]:(batch_brackets[b_i+1]-1)){
+    #print(b2_i)
+    this_cast <- parse_cast(credits$cast[b2_i])
+    #print(this_cast)
+    if(nrow(this_cast) > 0){
+      this_cast$id <- as.character(credits$id[b2_i])
+      batch_data <- rbind(batch_data, this_cast)
+    }
+  }
+  cast_df <- rbind(cast_df, batch_data)
+  print(paste0("Done cast batch: ",b_i))
+}
+
+
+######### For credit.csv file parsing the crew column.
+
+
+parse_crew <- function(crew_text) {
+  # Takes one cell of the JSON format for processing
+  #print(crew_text)
+  text <- 
+    sub("\\?\\$\\?", "",                    # Drop the first one occurrences
+        gsub("\'|\"|\\[|\\]|\\{|\\}|,", "", # Drop the all the one occurrences
+             gsub("\'credit_id\':|\'department\':|\'gender\':|\'id\':|\'job\':|\'name\':|\'profile_path\':", 
+                  "?$?",                    # Drop all the \\ and names mentioned above
+                  crew_text)
+        )
+    )
+  #print(text)
+  data <- data.frame(matrix(                # Change that into matrix and data frame.
+    trimws(unlist(                          # unlisting it and trimws - Remove leading and/or trailing whitespace from character strings.
+      strsplit(text, "\\?\\$\\?")           # Split it using ?$?
+    )), 
+    ncol = 7, byrow = TRUE), stringsAsFactors = FALSE)
+  
+  names(data) <- c("credit_id", "crew_department", "crew_gender", "id_from_crew", "crew_job", "crew_name", "profile_path") # add column names
+  
+  return(data %>% dplyr::select(id_from_crew, crew_name, crew_gender, crew_job, crew_department)) # Return only what is needed.
+}
+
+crew_df <- data.frame()
+for(b_i in 1:num_batches){
+  batch_data <- data.frame()
+  for(b2_i in batch_brackets[b_i]:(batch_brackets[b_i+1]-1)){
+    #print(b2_i)
+    this_crew <- parse_crew(credits$crew[b2_i])
+    #print(this_crew)
+    if(nrow(this_crew) > 0){
+      this_crew$id <- as.character(credits$id[b2_i])
+      batch_data <- rbind(batch_data, this_crew)
+      #print(batch_data)
+    }
+  }
+  crew_df <- rbind(crew_df, batch_data)
+  print(paste0("Done crew batch: ", b_i))
+}
+```
+```{r, echo=FALSE}
+head(cast_df)
+head(crew_df)
+```
+```{r, include=FALSE,echo=FALSE}
+#select top cast for each movie
+
+cast_top <- cast_df %>%
+  filter(cast_order==0) %>%
+  group_by(id) %>% 
+  slice(1) %>% 
+  dplyr::select(cast_name,cast_gender,id)
+ 
+head(cast_top)
+cast_cnt<- as.data.frame(table(cast_top["cast_name"]) )
+#table(cast_top$cast_gender)
+## gender does not seem to be accurate so better to ignore
+
+sum(duplicated(cast_top$id))
+```
+```{r, include=FALSE,echo=FALSE}
+#select top director for each movie
+
+crew_top <- crew_df %>%
+  group_by(id) %>% 
+  filter(crew_job=='Director') %>%
+  slice(1) %>% 
+  dplyr::select(crew_name,crew_gender,id)
+ 
+head(crew_top)
+crew_cnt<- as.data.frame(table(crew_top["crew_name"]) )
+#table(crew_top$crew_gender)
+## gender does not seem to be accurate so better to ignore
+
+sum(duplicated(crew_top$id))
+```
+```{r,include=FALSE, echo=FALSE}
+metadata = sqldf("
+SELECT 
+a.*,
+b.cast_name as main_actor,
+c.crew_name AS director
+FROM metadata AS a
+LEFT JOIN cast_top AS b 
+ON a.id = b.id LEFT JOIN crew_top AS c
+ON a.id = c.id 
+ORDER BY a.movie_id ASC
+                 ")
+
+head(metadata)
+```
+
+```{r,include=FALSE, echo=FALSE}
+cast_cnt<- as.data.frame(table(metadata["main_actor"]) )
+sum(is.na(metadata$main_actor)) ## 8161 NA's
+
+crew_cnt<- as.data.frame(table(metadata["director"]) )
+sum(is.na(metadata$director)) ## 751 NA's
+
+```
+```{r, include=FALSE, echo=FALSE}
+summary(cast_cnt$Freq)
+hist(cast_cnt$Freq)
+summary(crew_cnt$Freq)
+hist(crew_cnt$Freq)
+```
+```{r, include=FALSE,echo=FALSE}
+## considering actors with >30 count movies_df as top actors="1", else "0"
+## considering directors with >30 count movies_df as top directors="1", else "0"
+
+metadata = sqldf("
+SELECT 
+a.*,
+(case when b.Freq>30 then 1 else 0 end) as exp_actor,
+(case when c.Freq>30 then 1 else 0 end) as exp_director 
+FROM metadata AS a
+LEFT JOIN cast_cnt AS b 
+ON a.main_actor = b.main_actor LEFT JOIN crew_cnt AS c
+ON a.director = c.director 
+ORDER BY a.movie_id ASC
+                 ")
+
+metadata$exp_actor <- as.character(metadata$exp_actor)
+metadata$exp_director <- as.character(metadata$exp_director)
+
+head(metadata)
+```
+
+```{r,include=FALSE, echo=FALSE}
+#Check for NA's
+sum(is.na(metadata$main_actor)) #8161
+sum(is.na(metadata$director)) #751 -- should these rows be removed from the final model or can we proceed with the assumption that these rows are not from a movie with top director?
+sum(is.na(metadata$exp_actor))
+sum(is.na(metadata$exp_director))
+```
+```{r, include=FALSE,echo=FALSE}
+write.csv(metadata,"metadata_updtd_v1.csv")
+```
+
+```{r, include=FALSE,echo=FALSE}
+##model with genre, top15prod, vote_average, vote_count, popularity, runtime, release_cnt, release_mnth, exp_actor, exp_director
+
+logReg8 = glm(gs_ind ~ genre  + Top15Production + vote_average + vote_count + popularity + runtime + release_cnt + release_mnth  + exp_actor + exp_director, metadata, family=binomial)
+summary(logReg8)
+
+vif(logReg8)
+```
+```{r, include=FALSE,echo=FALSE}
+##model with genre, top15prod, vote_average, vote_count, popularity, runtime, release_cnt, release_mnth, exp_director
+
+logReg9 = glm(gs_ind ~ genre  + Top15Production + vote_average + vote_count + popularity + runtime + release_cnt + release_mnth + exp_director, metadata, family=binomial)
+summary(logReg9)
+
+vif(logReg9)
+```
+```{r}
+##model with genre, top15prod, runtime, release_cnt, release_mnth, exp_director
+
+logReg10 = glm(gs_ind ~ genre  + Top15Production + runtime  + release_mnth  + exp_director, metadata, family=binomial)
+summary(logReg10)
+vif(logReg10)
+#all vif<5
+```
+The results shown above are concluded from the final regression model we selected which is used to understand the effects of predictor variables on the movie being good as this model does a good job explaining the same with respect to all the dependents. For our independent variable, we chose ratings of 3.5 and higher as our predictive dataset as these movies were considered good in the market.
+
+As seen, we came up with the genre, Top15Production, runtime, release month, and experienced director which significantly helps explains a good movie. The decision on selecting these variables went through various steps which involved manipulation of the raw data presented to us which are explained below:
+
+1.Genre: The movie list consisted of various genres and some films were classified into multiple categories. To simplify things, we selected the most important genre for each movie. Then, we tallied the frequency of each genre, resulting in four values: Drama, Comedy, Action, and Others, with Drama having the highest number, followed by Comedy and Action, and the remaining genres were grouped under Others.
+
+2.Top15Production: Instead of using the entire dataset for prediction, we decided to only include the top 15 production houses that appeared most frequently in the list of data provided. This was done to ensure that our results were unbiased. 
+
+3.Runtime: The data had varying runtimes, including some that were listed as 0. To carry out a meaningful analysis, we only considered films with a runtime of over 40 minutes. This is because production companies consider a minimum runtime of 40 minutes to be necessary for a movie to be considered a feature film.
+
+4.Release Month: The month in which a movie is released is a crucial factor for production companies to consider when bringing a new film to the box office. The chances of a movie generating good revenue are much higher if it is released during holidays or close to a festival where in our data it was month.
+
+5.Directors: Analyzing the data with the number of different directors did not provide much insight, so we chose to focus only on those directors who had produced at least 30 films during their careers. This new list of experienced directors was then used as a predictor in our analysis, which gave some significant results.
+
+Similarly, we thought that having experienced cast members would also have a positive impact on the results. However, after incorporating it into our model, the results were not as significant as we had anticipated. As a result, we did not proceed with using this variable.
+
+```{r, include=FALSE,echo=FALSE}
+#For now consider model 10 to be the best
+logRegFin = logReg10
+```
+
+```{r, include=FALSE,echo=FALSE}
+#What about predictive accuracy?
+pred = predict(logRegFin,type="response") #This is the probability that the film is a "good film"
+pred[pred>=.5] = "1"
+pred[pred!="1"] = "0"
+
+#classification matrix
+classMatrix = table(pred,metadata$gs_ind) #first variable is by row, the second is by column
+classMatrix
+#Take a minute and interpret this table, what seems to be the problem?
+
+```
+```{r, echo=FALSE}
+#Interpret this, is it good?
+sum(diag(classMatrix))/sum(classMatrix)
+```
+The findings from the final regression model we chose, which is utilized to comprehend the impacts of predictor variables on the quality of the film since this model performs an excellent job describing the same about all the dependents, are summarized here. We used ratings of 3.5 and higher as our predictive dataset for our independent variable since these films were regarded favorably by consumers. As can be seen, we identified the genre, Top15Production, duration, release month, and experienced director as factors that greatly contribute to the explanation of a good film. 
+
+The choice of these variables was made after a series of processes that entailed manipulating the raw data that was provided to us. The list of movies included a variety of genres, and some were divided into more than one category. To make things easier, we chose the most significant genre for each film. The frequency of each genre was then added together, yielding four values: Drama, Comedy, Action, and Others. Drama had the greatest frequency, followed by Comedy and Action, and the other genres were categorized under Others. We chose to simply use the top 15 production firms that occurred the most frequently in the list of data supplied, rather than utilizing the whole dataset for prediction. This was carried out to guarantee the objectivity of our findings. The runtimes of the data varied some of which were reported as 0. We only took into consideration movies with a duration of over 40 minutes to conduct a valid study. This is due to the fact that production firms need feature films to have a minimum length of 40 minutes. When introducing a new picture to the box office, production firms must take into account a number of important factors, including the month in which a film is launched. If a movie is released around a festival or over a holiday, its odds of doing well financially are substantially higher; in our data, this was a month.
+
+We decided to narrow our attention to filmmakers who had made at least 30 films in their careers because analyzing the data with the number of different directors did not yield many insightful results. Then, we utilized this updated list of seasoned directors as a predictor in our research, which produced some noteworthy findings. Similarly, we believed that having experienced cast members would favorably affect the outcomes. The findings, however, were not as dramatic as we had anticipated after adding it to our model. So, we decided against utilizing this variable further.
+
+The model shows that drama, comedy, thriller, romance, and action movies are more likely to be commercially successful than other genres. According to the model, these genres have been discovered to positively influence the prospect of a movie's success. A production firm might boost its chances of producing a successful film by concentrating on making films in these genres. Collaborate with a respected and well-known film company to raise the likelihood that a film will be a success. The model contends that a film's success may be influenced by the studio that produces it. A movie's chances of being a success can be increased by collaborating with a well-known and prestigious studio, which can provide the film with additional resources, marketing, and visibility. To improve the chances of a movie production succeeding, use experienced directors. The model revealed that a strong predictor of a movie's success was the director's experience. A production firm can boost its chances of creating a high-caliber film that connects with audiences by investing in talented directors. The model contends that a film's success may be influenced by its genre and the month of release. A production firm should carefully evaluate the release strategy for their films, including the genre in which it will be produced. It was also noted that films released around festivals or during the holidays were more likely to do well financially.
+December is typically a holiday month, so releasing a movie during that time could increase its chances of success. However, it's important to note that the specific release strategy should be tailored to the particular movie and its target audience, as factors such as competition from other releases and the movie's genre can also influence the optimal release timing. Additionally, the model suggests that a movie's runtime can also be a significant predictor of its success. Therefore, production companies should ensure that their movies have a runtime of at least 40 minutes to be considered a feature film.
+It is also crucial to remember that, although if the findings of the model were not significantly affected by include experienced cast members, it is still crucial to use great and qualified actors who can add depth and emotion to their parts. Finally, it's critical for production firms to keep collecting data about their films and analyzing it to make judgments about next projects. Production firms may improve their chances of making successful movies in the future by regularly studying and learning from their successes and mistakes. Ultimately, a production company may boost their odds of generating a successful movie by employing the results of this model. They can do this by making strategic decisions regarding the genre, studio, director, and release plan, and by using data-driven insights to guide those decisions.
+
